@@ -20,7 +20,7 @@ This repository is **for educational and research purposes only**.
 |-----------------------|------------------------------------------------------------------------------------|
 | **Anti-Debug**        | PEB `BeingDebugged`, `NtQueryInformationProcess`, `CheckRemoteDebuggerPresent`, Timing Attacks, `INT 2D`/`INT 3` traps, Thread Suspension Check |
 | **Anti-VM**           | CPUID Hypervisor Bit, VMware/VirtualBox/Parallels Signatures, Disk Size Check, MAC Address Analysis |
-| **Anti-Tamper**       | `SeDebugPrivilege` Elevation, Memory Page Protection, Thread Hiding (`NtSetInformationThread`) |
+| **Anti-Tamper**       | Thread Hiding (`NtSetInformationThread`) |
 | **Obfuscation**       | String Encryption (XOR + Dynamic Keys), Lazy Importer (`LI_FN`), Control Flow Flattening |
 | **Stealth**           | Hidden Threads, Direct Syscalls (via `ntdll`), No Hardcoded API Calls |
 
