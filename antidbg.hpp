@@ -18,7 +18,6 @@
 #include <cmath>
 #include <type_traits>
 
-// This protection is under Custom License – Non-Commercial Source Distribution
 // Copyright (c) 2025 metix
 // Discord Username: ntwritefile
 
