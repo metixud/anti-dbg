@@ -1,6 +1,6 @@
 # **AntiDbg - Advanced Anti-Debug & Anti-VM Protection**
 [![C++](https://img.shields.io/badge/C++-17/20-blue)](https://en.cppreference.com/)
-[![x64]([https://img.shields.io/badge/Arch-x86%20%7C%20x64-green](https://img.shields.io/badge/x64-gree))](https://docs.microsoft.com/en-us/cpp/build/x64-software-conventions?view=msvc-170)
+[![x64](https://img.shields.io/badge/x64-green)](https://docs.microsoft.com/en-us/cpp/build/x64-software-conventions?view=msvc-170)
 [![License](https://img.shields.io/badge/License-Educational%20Use%20Only-red)](LICENSE)
 
 *A lightweight, obfuscated, and evasive anti-debug/anti-VM library for Windows applications.*
