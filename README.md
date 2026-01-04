@@ -31,4 +31,5 @@ This repository is **for educational and research purposes only**.
 int main() {
 	AntiDebug::StartHiddenThread();
 	// ur code
-}```
+}
+```
