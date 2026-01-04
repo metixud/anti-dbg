@@ -23,3 +23,12 @@ This repository is **for educational and research purposes only**.
 | **Anti-Tamper**       | `SeDebugPrivilege` Elevation, Memory Page Protection, Thread Hiding (`NtSetInformationThread`) |
 | **Obfuscation**       | String Encryption (XOR + Dynamic Keys), Lazy Importer (`LI_FN`), Control Flow Flattening |
 | **Stealth**           | Hidden Threads, Direct Syscalls (via `ntdll`), No Hardcoded API Calls |
+
+## **How to import ?**
+```
+#include "antidbg.hpp"
+
+int main() {
+	AntiDebug::StartHiddenThread();
+	// ur code
+}```
