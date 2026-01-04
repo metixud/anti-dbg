@@ -4,6 +4,7 @@
 [![License](https://img.shields.io/badge/License-Educational%20Use%20Only-red)](LICENSE)
 [![No Selling](https://img.shields.io/badge/Selling-Not%20Allowed-red)](LICENSE)
 [![Public Domain](https://img.shields.io/badge/License-Unlicense-blue)](https://unlicense.org/)
+
 *A lightweight, obfuscated, and evasive anti-debug/anti-VM library for Windows applications.*
 
 ---
