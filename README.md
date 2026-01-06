@@ -17,20 +17,19 @@ This repository is **for educational and research purposes only**.
 ---
 
 ## **🔍 Features**
+
 | **Category**          | **Techniques Used**                                                                 |
 |-----------------------|------------------------------------------------------------------------------------|
-| **Anti-Debug**        | PEB `BeingDebugged`, `NtQueryInformationProcess`, `CheckRemoteDebuggerPresent`, Timing Attacks, `INT 2D`/`INT 3` traps, Thread Suspension Check |
-| **Anti-VM**           | CPUID Hypervisor Bit, VMware/VirtualBox/Parallels Signatures, Disk Size Check, MAC Address Analysis |
-| **Anti-Tamper**       | Thread Hiding (`NtSetInformationThread`) |
-| **Obfuscation**       | String Encryption (XOR + Dynamic Keys), Lazy Importer (`LI_FN`), Control Flow Flattening |
+| **Anti-Debug**        | PEB (`BeingDebugged`, `NtGlobalFlag`), Hardware Breakpoints (`Dr0-Dr3`), Software Breakpoints (`0xCC`), Timing Attacks (RDTSC), Thread Suspension Check, `NtQueryInformationProcess` |
+| **Anti-VM**           | CPUID Hypervisor Bit, VMware/VirtualBox Signatures, Registry Checks, Disk Size Analysis |
+| **Anti-Tamper**       | Thread Hiding (`NtSetInformationThread`), Memory Protection (`VirtualProtect`) |
+| **Obfuscation**       | String Encryption (XOR + Dynamic Keys), Lazy Importer (`LI_FN`), Runtime Decryption |
 | **Stealth**           | Hidden Threads, Direct Syscalls (via `ntdll`), No Hardcoded API Calls |
 
-## **How to import ?**
-```
-#include "antidbg.hpp"
+---
 
-int main() {
-	AntiDebug::StartHiddenThread();
-	// ur code
-}
-```
+## **📦 How to Use ?**
+
+### **1. Include the Header**
+```cpp
+#include "antidbg.hpp"
