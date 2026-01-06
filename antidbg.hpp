@@ -18,9 +18,6 @@
 #include <cmath>
 #include <type_traits>
 
-// Copyright (c) 2025 metix
-// Discord Username: ntwritefile
-
 namespace OBFS
 {
     template<class _Ty>
@@ -65,6 +62,7 @@ namespace OBFS
     return crypted; \
 }()
 
+
 namespace AntiDebug {
     typedef struct _PEB {
         BYTE Reserved1[2];
@@ -92,129 +90,100 @@ namespace AntiDebug {
     typedef NTSTATUS(NTAPI* pNtQueryInformationProcess)(HANDLE, PROCESSINFOCLASS, PVOID, ULONG, PULONG);
     typedef NTSTATUS(NTAPI* pNtSetInformationThread)(HANDLE, THREADINFOCLASS, PVOID, ULONG);
 
-    inline bool DetectVMSignatures(const void* buffer, size_t size) {
-        if (!buffer || size == 0) return false;
-        std::string_view memoryView(static_cast<const char*>(buffer), size);
-
-        const std::vector<std::string_view> signatures = {
-            XS("QEMU"), XS("Oracle"), XS("innotek"), XS("VirtualBox"), XS("Virtual Platform"),
-            XS("VMware"), XS("Parallels"), XS("777777"), XS("VBox"), XS("Xen"), XS("Hyper-V")
-        };
-
-        for (const auto& sig : signatures) {
-            if (memoryView.find(sig) != std::string_view::npos) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    inline bool CheckVMViaCPUID() {
-        int cpuInfo[4] = { 0 };
-        __cpuid(cpuInfo, 1);
-        return (cpuInfo[2] >> 31) & 1;
-    }
-
-    inline bool CheckVMViaDiskSize() {
-        DWORD sectorsPerCluster = 0, bytesPerSector = 0;
-        DWORD freeClusters = 0, totalClusters = 0;
-        if (LI_FN(GetDiskFreeSpaceA)(XS("C:\\"), &sectorsPerCluster, &bytesPerSector, &freeClusters, &totalClusters)) {
-            ULONGLONG totalBytes = (ULONGLONG)totalClusters * sectorsPerCluster * bytesPerSector;
-            return (totalBytes < 60ULL * 1024 * 1024 * 1024);
-        }
-        return false;
-    }
-
-    inline bool IsRunningInVM() {
-        MEMORY_BASIC_INFORMATION mbi;
-        LI_FN(VirtualQuery)((LPCVOID)DetectVMSignatures, &mbi, sizeof(mbi));
-        if (DetectVMSignatures(mbi.AllocationBase, mbi.RegionSize)) {
-            return true;
-        }
-        if (CheckVMViaCPUID()) {
-            return true;
-        }
-        if (CheckVMViaDiskSize()) {
-            return true;
-        }
-        return false;
-    }
-
     inline bool IsDebuggerPresentAdvanced() {
-        if (LI_FN(IsDebuggerPresent)()) {
-            return true;
-        }
-
         PPEB pPeb = nullptr;
 #ifdef _WIN64
         pPeb = (PPEB)__readgsqword(0x60);
 #else
         pPeb = (PPEB)__readfsdword(0x30);
 #endif
-        if (pPeb && pPeb->BeingDebugged) {
-            return true;
-        }
+        return (pPeb->BeingDebugged || (pPeb->NtGlobalFlag & 0x70));
+    }
 
-        PROCESS_BASIC_INFORMATION pbi;
-        if (LI_FN(NtQueryInformationProcess).nt()(GetCurrentProcess(), ProcessBasicInformation, &pbi, sizeof(pbi), nullptr) >= 0) {
-            if (pbi.PebBaseAddress->BeingDebugged) {
-                return true;
-            }
-        }
-
-        BOOL isDebugged = FALSE;
-        if (LI_FN(CheckRemoteDebuggerPresent)(GetCurrentProcess(), &isDebugged) && isDebugged) {
-            return true;
-        }
-
-        DWORD start = LI_FN(GetTickCount)();
-        LI_FN(Sleep)(500);
-        DWORD end = LI_FN(GetTickCount)();
-        if ((end - start) < 400) {
-            return true;
-        }
-
-        __try {
-            __debugbreak();
-        }
-        __except (EXCEPTION_EXECUTE_HANDLER) {
-            return true;
-        }
-
+    inline bool CheckHardwareBreakpoints() {
+        CONTEXT ctx = { 0 };
+        ctx.ContextFlags = CONTEXT_DEBUG_REGISTERS;
+        if (LI_FN(GetThreadContext)(GetCurrentThread(), &ctx))
+            return (ctx.Dr0 != 0 || ctx.Dr1 != 0 || ctx.Dr2 != 0 || ctx.Dr3 != 0);
         return false;
     }
 
-    inline bool CheckRemoteDebugger() {
-        HANDLE hSnapshot = LI_FN(CreateToolhelp32Snapshot)(TH32CS_SNAPTHREAD, 0);
-        if (hSnapshot == INVALID_HANDLE_VALUE) {
-            return false;
+    inline bool CheckSoftwareBreakpoints() {
+        DWORD oldProtect;
+        void* addr = (void*)IsDebuggerPresentAdvanced;
+        if (LI_FN(VirtualProtect)(addr, 1, PAGE_EXECUTE_READWRITE, &oldProtect)) {
+            bool isBreakpoint = (*(BYTE*)addr == 0xCC);
+            LI_FN(VirtualProtect)(addr, 1, oldProtect, &oldProtect);
+            return isBreakpoint;
         }
+        return false;
+    }
+
+    inline bool CheckTimingAttack() {
+        ULONGLONG start = __rdtsc();
+        LI_FN(Sleep)(1000);
+        ULONGLONG end = __rdtsc();
+        return (end - start) < 1000000000ULL;
+    }
+
+    inline bool CheckRemoteDebugger() {
+        PROCESS_BASIC_INFORMATION pbi;
+        ULONG len;
+        NTSTATUS status = LI_FN(NtQueryInformationProcess).nt(GetCurrentProcess(), ProcessDebugPort, &pbi, sizeof(pbi), &len);
+        return NT_SUCCESS(status) && pbi.PebBaseAddress->BeingDebugged;
+    }
+
+    inline bool IsRunningInVM() {
+        bool vmDetected = false;
+        int cpuInfo[4] = { -1 };
+        __cpuid(cpuInfo, 1);
+        vmDetected |= ((cpuInfo[2] >> 31) & 1) || ((cpuInfo[3] >> 31) & 1);
+
+        HKEY hKey;
+        if (LI_FN(RegOpenKeyExA)(HKEY_LOCAL_MACHINE, XS("HARDWARE\\Description\\System\\BIOS"), 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+            char systemManufacturer[256] = { 0 };
+            DWORD size = sizeof(systemManufacturer);
+            if (LI_FN(RegQueryValueExA)(hKey, XS("SystemManufacturer"), nullptr, nullptr, (LPBYTE)systemManufacturer, &size) == ERROR_SUCCESS) {
+                vmDetected |= (strstr(systemManufacturer, XS("VMware")) || strstr(systemManufacturer, XS("VirtualBox")));
+            }
+            LI_FN(RegCloseKey)(hKey);
+        }
+        return vmDetected;
+    }
+
+    inline bool CheckSuspendedThreads() {
+        HANDLE hSnapshot = LI_FN(CreateToolhelp32Snapshot)(TH32CS_SNAPTHREAD, 0);
+        if (hSnapshot == INVALID_HANDLE_VALUE) return false;
 
         THREADENTRY32 te;
         te.dwSize = sizeof(te);
-        if (LI_FN(Thread32First)(hSnapshot, &te)) {
-            do {
-                if (te.th32OwnerProcessID == LI_FN(GetCurrentProcessId)()) {
-                    HANDLE hThread = LI_FN(OpenThread)(THREAD_QUERY_INFORMATION, FALSE, te.th32ThreadID);
-                    if (hThread) {
-                        DWORD suspendCount = LI_FN(SuspendThread)(hThread);
-                        LI_FN(ResumeThread)(hThread);
-                        if (suspendCount > 0) {
-                            LI_FN(CloseHandle)(hThread);
-                            LI_FN(CloseHandle)(hSnapshot);
-                            return true;
-                        }
-                        LI_FN(CloseHandle)(hThread);
-                    }
-                }
-            } while (LI_FN(Thread32Next)(hSnapshot, &te));
+        if (!LI_FN(Thread32First)(hSnapshot, &te)) {
+            LI_FN(CloseHandle)(hSnapshot);
+            return false;
         }
+
+        do {
+            if (te.th32OwnerProcessID == LI_FN(GetCurrentProcessId)()) {
+                HANDLE hThread = LI_FN(OpenThread)(THREAD_QUERY_INFORMATION, FALSE, te.th32ThreadID);
+                if (hThread) {
+                    DWORD suspendCount = LI_FN(SuspendThread)(hThread);
+                    LI_FN(ResumeThread)(hThread);
+                    if (suspendCount > 0) {
+                        LI_FN(CloseHandle)(hThread);
+                        LI_FN(CloseHandle)(hSnapshot);
+                        return true;
+                    }
+                    LI_FN(CloseHandle)(hThread);
+                }
+            }
+        } while (LI_FN(Thread32Next)(hSnapshot, &te));
         LI_FN(CloseHandle)(hSnapshot);
         return false;
     }
 
     inline bool IsBeingDebugged() {
-        return IsDebuggerPresentAdvanced() || CheckRemoteDebugger();
+        return IsDebuggerPresentAdvanced() || CheckRemoteDebugger() || CheckHardwareBreakpoints() ||
+               CheckSoftwareBreakpoints() || CheckTimingAttack() || CheckSuspendedThreads();
     }
 
     inline void AntiDump() {
@@ -254,8 +223,6 @@ namespace AntiDebug {
     inline void StartHiddenThread() {
         DWORD threadId;
         HANDLE hThread = LI_FN(CreateThread)(nullptr, 0, (LPTHREAD_START_ROUTINE)HiddenThread, nullptr, 0, &threadId);
-        if (hThread) {
-            LI_FN(CloseHandle)(hThread);
-        }
+        if (hThread) LI_FN(CloseHandle)(hThread);
     }
 }
