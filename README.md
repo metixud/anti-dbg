@@ -29,7 +29,11 @@ This repository is **for educational and research purposes only**.
 ---
 
 ## **📦 How to Use ?**
-
-### **1. Include the Header**
-```cpp
+```
 #include "antidbg.hpp"
+
+int main() {
+	AntiDebug::StartHiddenThread();
+	// ur code
+}
+```
