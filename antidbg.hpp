@@ -71,8 +71,17 @@ namespace AntiDebug {
         PVOID Reserved3[2];
         PPEB_LDR_DATA Ldr;
         PRTL_USER_PROCESS_PARAMETERS ProcessParameters;
+#ifdef _WIN64
         BYTE Reserved4[104];
+        PVOID Reserved5[5];
+        ULONG NtGlobalFlag;
+        PVOID Reserved5_2[46];
+#else
+        BYTE Reserved4[84];
+        ULONG NtGlobalFlag;
+        BYTE Reserved4_2[16];
         PVOID Reserved5[52];
+#endif
         PPS_POST_PROCESS_INIT_ROUTINE PostProcessInitRoutine;
         BYTE Reserved6[128];
         PVOID Reserved7[1];
@@ -127,92 +136,97 @@ namespace AntiDebug {
     }
 
     inline bool CheckRemoteDebugger() {
-        PROCESS_BASIC_INFORMATION pbi;
-        ULONG len;
-        NTSTATUS status = LI_FN(NtQueryInformationProcess).nt(GetCurrentProcess(), ProcessDebugPort, &pbi, sizeof(pbi), &len);
-        return NT_SUCCESS(status) && pbi.PebBaseAddress->BeingDebugged;
+        DWORD_PTR debugPort = 0;
+        NTSTATUS status = LI_FN(NtQueryInformationProcess).nt()(GetCurrentProcess(), ProcessDebugPort, &debugPort, sizeof(debugPort), NULL);
+        return NT_SUCCESS(status) && debugPort != 0;
     }
 
-inline bool detect_hypervisor() {
-    int cpuInfo[4] = { 0 };
-    __cpuid(cpuInfo, 1);
-    return (cpuInfo[2] & (1 << 31)) != 0;
-}
-
-inline bool detect_low_ram() {
-    MEMORYSTATUSEX memInfo;
-    memInfo.dwLength = sizeof(MEMORYSTATUSEX);
-    if (GlobalMemoryStatusEx(&memInfo)) {
-        DWORDLONG totalRAM = memInfo.ullTotalPhys / (1024 * 1024 * 1024);
-        return totalRAM < 4;
+    inline bool detect_hypervisor() {
+        int cpuInfo[4] = { 0 };
+        __cpuid(cpuInfo, 1);
+        return (cpuInfo[2] & (1 << 31)) != 0;
     }
-    return false;
-}
 
-inline bool detect_few_cores() {
-    SYSTEM_INFO sysInfo;
-    GetSystemInfo(&sysInfo);
-    return sysInfo.dwNumberOfProcessors < 4; 
-}
-
-inline bool detect_low_disk_space() {
-    ULARGE_INTEGER freeBytesAvailable, totalBytes, totalFreeBytes;
-    if (GetDiskFreeSpaceExA(XS("C:\\"), &freeBytesAvailable, &totalBytes, &totalFreeBytes)) {
-        ULONGLONG totalGB = totalBytes.QuadPart / (1024 * 1024 * 1024);
-        return totalGB < 100;
-    }
-    return false;
-}
-
-inline bool detect_vm() {
-    bool vm = false;
-
-    const char* vm_vendors[] = {
-        XS("VMware"),
-        XS("VBox"),
-        XS("VIRTUAL"),
-        XS("QEMU"),
-        XS("Xen"),
-        XS("Parallels")
-    };
-
-    HKEY hKey;
-    if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, XS("SYSTEM\\CurrentControlSet\\Services"), 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-        char keyName[256];
-        DWORD index = 0;
-        DWORD nameSize = sizeof(keyName);
-
-        while (RegEnumKeyExA(hKey, index, keyName, &nameSize, NULL, NULL, NULL, NULL) == ERROR_SUCCESS) {
-            for (const auto& vendor : vm_vendors) {
-                if (strstr(keyName, vendor)) {
-                    vm = true;
-                    break;
-                }
-            }
-            nameSize = sizeof(keyName);
-            index++;
+    inline bool detect_low_ram() {
+        MEMORYSTATUSEX memInfo;
+        memInfo.dwLength = sizeof(MEMORYSTATUSEX);
+        if (GlobalMemoryStatusEx(&memInfo)) {
+            DWORDLONG totalRAM = memInfo.ullTotalPhys / (1024 * 1024 * 1024);
+            return totalRAM < 4;
         }
-        RegCloseKey(hKey);
+        return false;
     }
 
-    return vm;
-}
+    inline bool detect_few_cores() {
+        SYSTEM_INFO sysInfo;
+        GetSystemInfo(&sysInfo);
+        return sysInfo.dwNumberOfProcessors < 4;
+    }
+
+    inline bool detect_low_disk_space() {
+        ULARGE_INTEGER freeBytesAvailable, totalBytes, totalFreeBytes;
+        if (GetDiskFreeSpaceExA(XS("C:\\"), &freeBytesAvailable, &totalBytes, &totalFreeBytes)) {
+            ULONGLONG totalGB = totalBytes.QuadPart / (1024 * 1024 * 1024);
+            return totalGB < 100;
+        }
+        return false;
+    }
+
+    inline bool detect_vm() {
+        bool vm = false;
+
+        const char* vm_vendors[] = {
+            XS("VMware"),
+            XS("VBox"),
+            XS("VIRTUAL"),
+            XS("QEMU"),
+            XS("Xen"),
+            XS("Parallels")
+        };
+
+        HKEY hKey;
+        if (RegOpenKeyExA(HKEY_LOCAL_MACHINE, XS("SYSTEM\\CurrentControlSet\\Services"), 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+            char keyName[256];
+            DWORD index = 0;
+            DWORD nameSize = sizeof(keyName);
+
+            while (RegEnumKeyExA(hKey, index, keyName, &nameSize, NULL, NULL, NULL, NULL) == ERROR_SUCCESS) {
+                for (const auto& vendor : vm_vendors) {
+                    if (strstr(keyName, vendor)) {
+                        vm = true;
+                        break;
+                    }
+                }
+                nameSize = sizeof(keyName);
+                index++;
+            }
+            RegCloseKey(hKey);
+        }
+
+        return vm;
+    }
     inline bool IsRunningInVM() {
+        bool detected = false;
         if (detect_hypervisor() || detect_vm()) {
             ShowDetectionPopup(XS("Virtual Machine detected!"));
+            detected = true;
         }
 
         if (detect_low_ram()) {
             ShowDetectionPopup(XS("Suspicious low RAM configuration detected!"));
+            detected = true;
         }
 
         if (detect_few_cores()) {
             ShowDetectionPopup(XS("Suspicious low CPU core count detected!"));
+            detected = true;
         }
 
         if (detect_low_disk_space()) {
             ShowDetectionPopup(XS("Suspicious low disk space detected!"));
+            detected = true;
         }
+        return detected;
     }
 
     inline bool CheckSuspendedThreads() {
@@ -247,7 +261,7 @@ inline bool detect_vm() {
 
     inline bool IsBeingDebugged() {
         return IsDebuggerPresentAdvanced() || CheckRemoteDebugger() || CheckHardwareBreakpoints() ||
-               CheckSoftwareBreakpoints() || CheckTimingAttack() || CheckSuspendedThreads();
+            CheckSoftwareBreakpoints() || CheckTimingAttack() || CheckSuspendedThreads();
     }
 
     inline void AntiDump() {
