@@ -62,7 +62,9 @@ namespace OBFS
     return crypted; \
 }()
 
-
+inline void ShowDetectionPopup(const char* message) {
+    LI_FN(MessageBoxA)(nullptr, message, XS("Detection Alert"), MB_ICONWARNING | MB_OK);
+}
 namespace AntiDebug {
     typedef struct _PEB {
         BYTE Reserved1[2];
@@ -277,9 +279,7 @@ namespace AntiDebug {
         }
     }
 
-    inline void ShowDetectionPopup(const char* message) {
-        LI_FN(MessageBoxA)(nullptr, message, XS("Detection Alert"), MB_ICONWARNING | MB_OK);
-    }
+
 
     inline DWORD WINAPI HiddenThread(LPVOID lpParam) {
         LI_FN(NtSetInformationThread).nt()(GetCurrentThread(), (THREADINFOCLASS)17, nullptr, 0);
