@@ -199,19 +199,19 @@ inline bool detect_vm() {
 }
     inline bool IsRunningInVM() {
         if (detect_hypervisor() || detect_vm()) {
-            ShowDetectionPopup(OBF("Virtual Machine detected!"));
+            ShowDetectionPopup(XS("Virtual Machine detected!"));
         }
 
         if (detect_low_ram()) {
-            ShowDetectionPopup(OBF("Suspicious low RAM configuration detected!"));
+            ShowDetectionPopup(XS("Suspicious low RAM configuration detected!"));
         }
 
         if (detect_few_cores()) {
-            ShowDetectionPopup(OBF("Suspicious low CPU core count detected!"));
+            ShowDetectionPopup(XS("Suspicious low CPU core count detected!"));
         }
 
         if (detect_low_disk_space()) {
-            ShowDetectionPopup(OBF("Suspicious low disk space detected!"));
+            ShowDetectionPopup(XS("Suspicious low disk space detected!"));
         }
     }
 
