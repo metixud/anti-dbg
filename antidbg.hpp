@@ -231,39 +231,10 @@ namespace AntiDebug {
         return detected;
     }
 
-    inline bool CheckSuspendedThreads() {
-        HANDLE hSnapshot = LI_FN(CreateToolhelp32Snapshot)(TH32CS_SNAPTHREAD, 0);
-        if (hSnapshot == INVALID_HANDLE_VALUE) return false;
-
-        THREADENTRY32 te;
-        te.dwSize = sizeof(te);
-        if (!LI_FN(Thread32First)(hSnapshot, &te)) {
-            LI_FN(CloseHandle)(hSnapshot);
-            return false;
-        }
-
-        do {
-            if (te.th32OwnerProcessID == LI_FN(GetCurrentProcessId)()) {
-                HANDLE hThread = LI_FN(OpenThread)(THREAD_QUERY_INFORMATION, FALSE, te.th32ThreadID);
-                if (hThread) {
-                    DWORD suspendCount = LI_FN(SuspendThread)(hThread);
-                    LI_FN(ResumeThread)(hThread);
-                    if (suspendCount > 0) {
-                        LI_FN(CloseHandle)(hThread);
-                        LI_FN(CloseHandle)(hSnapshot);
-                        return true;
-                    }
-                    LI_FN(CloseHandle)(hThread);
-                }
-            }
-        } while (LI_FN(Thread32Next)(hSnapshot, &te));
-        LI_FN(CloseHandle)(hSnapshot);
-        return false;
-    }
 
     inline bool IsBeingDebugged() {
         return IsDebuggerPresentAdvanced() || CheckRemoteDebugger() || CheckHardwareBreakpoints() ||
-            CheckSoftwareBreakpoints() || CheckTimingAttack() || CheckSuspendedThreads();
+            CheckSoftwareBreakpoints() || CheckTimingAttack();
     }
 
     inline void AntiDump() {
