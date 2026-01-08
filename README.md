@@ -29,7 +29,7 @@ This repository is **for educational and research purposes only**.
 ---
 
 ## **📦 How to Use ?**
-```
+```cpp
 #include "antidbg.hpp"
 
 int main() {
