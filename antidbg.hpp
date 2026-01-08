@@ -234,7 +234,7 @@ namespace AntiDebug {
 
     inline bool IsBeingDebugged() {
         return IsDebuggerPresentAdvanced() || CheckRemoteDebugger() || CheckHardwareBreakpoints() ||
-            CheckSoftwareBreakpoints() || CheckTimingAttack();
+            CheckSoftwareBreakpoints() || IsDebuggerPresent() || CheckTimingAttack();
     }
 
     inline void AntiDump() {
@@ -258,11 +258,11 @@ namespace AntiDebug {
         while (true) {
             if (IsBeingDebugged()) {
                 ShowDetectionPopup(XS("Debugger detected!"));
-                LI_FN(TerminateProcess)(GetCurrentProcess(), 0xDEAD);
+                LI_FN(exit)(0);
             }
             if (IsRunningInVM()) {
                 ShowDetectionPopup(XS("VM detected!"));
-                LI_FN(TerminateProcess)(GetCurrentProcess(), 0xDEAD);
+                LI_FN(exit)(0);
             }
             LI_FN(Sleep)(1000);
         }
