@@ -65,6 +65,23 @@ namespace OBFS
 inline void ShowDetectionPopup(const char* message) {
     LI_FN(MessageBoxA)(nullptr, message, XS("Detection Alert"), MB_ICONWARNING | MB_OK);
 }
+
+static BOOL CALLBACK EnumWndProc(HWND hwnd, LPARAM lParam)
+{
+    char cur_window[1024];
+    LI_FN(GetWindowTextA)(hwnd, cur_window, 1023);
+
+    if (strstr(cur_window, XS("WinDbg")) != NULL ||
+        strstr(cur_window, XS("x64_dbg")) != NULL ||
+        strstr(cur_window, XS("OllyICE")) != NULL ||
+        strstr(cur_window, XS("OllyDBG")) != NULL ||
+        strstr(cur_window, XS("Immunity")) != NULL ||
+        strstr(cur_window, XS("Cheat Engine")) != NULL)
+    {
+        *((BOOL*)lParam) = TRUE;
+    }
+    return TRUE;
+}
 namespace AntiDebug {
     typedef struct _PEB {
         BYTE Reserved1[2];
@@ -141,6 +158,78 @@ namespace AntiDebug {
         DWORD_PTR debugPort = 0;
         NTSTATUS status = LI_FN(NtQueryInformationProcess).nt()(GetCurrentProcess(), ProcessDebugPort, &debugPort, sizeof(debugPort), NULL);
         return NT_SUCCESS(status) && debugPort != 0;
+    }
+
+    inline bool CheckWindow() {
+        BOOL ret = FALSE;
+        LI_FN(EnumWindows)((WNDENUMPROC)EnumWndProc, (LPARAM)&ret);
+
+        if (LI_FN(FindWindowA)(XS("OLLYDBG"), NULL) != NULL ||
+            LI_FN(FindWindowA)(XS("WinDbgFrameClass"), NULL) != NULL ||
+            LI_FN(FindWindowA)(XS("QWidget"), NULL) != NULL ||
+            LI_FN(FindWindowA)(XS("Qt5153QTQWindowIcon"), NULL) != NULL || // IDA in quick start
+            LI_FN(FindWindowA)(XS("Qt5153QTQWindowPopupDropShadowSaveBits"), NULL) != NULL ||  // ida 
+            LI_FN(FindWindowA)(XS("Qt5QWindowIcon"), NULL) != NULL || // X64DBG ( some old version of x64dbg have this idk why butttttt )
+            LI_FN(FindWindowA)(XS("Qt5QWindowPopupDropShadowSaveBits"), NULL) != NULL) // x64dbg ( new )
+        {
+            return true;
+        }
+
+        char fore_window[1024];
+        LI_FN(GetWindowTextA)(LI_FN(GetForegroundWindow)(), fore_window, 1023);
+        if (strstr(fore_window, XS("WinDbg")) != NULL ||
+            strstr(fore_window, XS("x64_dbg")) != NULL ||
+            strstr(fore_window, XS("OllyICE")) != NULL ||
+            strstr(fore_window, XS("OllyDBG")) != NULL ||
+            strstr(fore_window, XS("Immunity")) != NULL)
+        {
+            return true;
+        }
+
+        return ret != FALSE;
+    }
+
+    inline bool CheckProcesses() {
+        const char* processes[] = {
+            XS("x64dbg.exe"), XS("x32dbg.exe"), XS("windbg.exe"), XS("ollydbg.exe"),
+            XS("immunitydebugger.exe"), XS("cheatengine-x86_64.exe"), XS("cheatengine-i386.exe"),
+            XS("wireshark.exe"), XS("procmon.exe"), XS("idag.exe"), XS("idag64.exe")
+        };
+
+        HANDLE hSnapshot = LI_FN(CreateToolhelp32Snapshot)(TH32CS_SNAPPROCESS, 0);
+        if (hSnapshot == INVALID_HANDLE_VALUE) return false;
+
+        PROCESSENTRY32 pe;
+        pe.dwSize = sizeof(pe);
+
+        if (LI_FN(Process32First)(hSnapshot, &pe)) {
+            do {
+                for (auto const& proc : processes) {
+                    if (strstr(pe.szExeFile, proc)) {
+                        LI_FN(CloseHandle)(hSnapshot);
+                        return true;
+                    }
+                }
+            } while (LI_FN(Process32Next)(hSnapshot, &pe));
+        }
+
+        LI_FN(CloseHandle)(hSnapshot);
+        return false;
+    }
+
+    inline bool CheckIntegrity() {
+        auto ntdll = LI_FN(GetModuleHandleA)(XS("ntdll.dll"));
+        if (!ntdll) return false;
+
+        auto nt_query = (BYTE*)LI_FN(GetProcAddress)(ntdll, XS("NtQueryInformationProcess"));
+        if (!nt_query) return false;
+
+        // 0xCC = INT3, 0xE9 = JMP
+        if (*nt_query == 0xCC || *nt_query == 0xE9) {
+            return true;
+        }
+
+        return false;
     }
 
     inline bool detect_hypervisor() {
@@ -234,11 +323,23 @@ namespace AntiDebug {
 
     inline bool IsBeingDebugged() {
         return IsDebuggerPresentAdvanced() || CheckRemoteDebugger() || CheckHardwareBreakpoints() ||
-            CheckSoftwareBreakpoints() || IsDebuggerPresent() || CheckTimingAttack();
+            CheckSoftwareBreakpoints() || IsDebuggerPresent() || CheckTimingAttack() ||
+            CheckWindow() || CheckProcesses() || CheckIntegrity();
     }
 
     inline void AntiDump() {
         LI_FN(SetErrorMode)(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
+        
+  
+        auto base = (char*)LI_FN(GetModuleHandleA)(NULL);
+        if (base) {
+            DWORD oldProtect;
+            if (LI_FN(VirtualProtect)(base, 4096, PAGE_READWRITE, &oldProtect)) {
+                LI_FN(memset)(base, 0, 4096);
+                LI_FN(VirtualProtect)(base, 4096, oldProtect, &oldProtect);
+            }
+        }
+
         HANDLE hToken;
         if (LI_FN(OpenProcessToken)(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &hToken)) {
             TOKEN_PRIVILEGES tp;
