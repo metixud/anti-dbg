@@ -9,14 +9,18 @@
 #include <winternl.h>
 #include <cstdint>
 #include <array>
-#include "lazy_importer.hpp"
-
+#include <winternl.h>
 #pragma comment(lib, "ntdll.lib")
 #pragma comment(lib, "psapi.lib")
 
-#include <cstdlib>
-#include <cmath>
 #include <type_traits>
+#include <nmmintrin.h>
+#include <algorithm>
+
+typedef NTSTATUS(NTAPI* NtCreateSection_t)(PHANDLE, ACCESS_MASK, PVOID, PLARGE_INTEGER, ULONG, ULONG, HANDLE);
+typedef NTSTATUS(NTAPI* NtMapViewOfSection_t)(HANDLE, HANDLE, PVOID*, ULONG_PTR, SIZE_T, PLARGE_INTEGER, PSIZE_T, DWORD, ULONG, ULONG);
+typedef NTSTATUS(NTAPI* NtUnmapViewOfSection_t)(HANDLE, PVOID);
+
 
 namespace OBFS
 {
@@ -66,17 +70,45 @@ inline void ShowDetectionPopup(const char* message) {
     LI_FN(MessageBoxA)(nullptr, message, XS("Detection Alert"), MB_ICONWARNING | MB_OK);
 }
 
+static bool CustomStrStr(const char* str, const char* search) {
+    if (!str || !search) return false;
+    for (; *str; ++str) {
+        const char* s = str;
+        const char* n = search;
+        while (*s && *n && *s == *n) {
+            ++s;
+            ++n;
+        }
+        if (!*n) return true;
+    }
+    return false;
+}
+
+static bool CustomStrStr(const wchar_t* str, const char* search) {
+    if (!str || !search) return false;
+    for (; *str; ++str) {
+        const wchar_t* s = str;
+        const char* n = search;
+        while (*s && *n && (char)*s == *n) {
+            ++s;
+            ++n;
+        }
+        if (!*n) return true;
+    }
+    return false;
+}
+
 static BOOL CALLBACK EnumWndProc(HWND hwnd, LPARAM lParam)
 {
     char cur_window[1024];
     LI_FN(GetWindowTextA)(hwnd, cur_window, 1023);
 
-    if (strstr(cur_window, XS("WinDbg")) != NULL ||
-        strstr(cur_window, XS("x64_dbg")) != NULL ||
-        strstr(cur_window, XS("OllyICE")) != NULL ||
-        strstr(cur_window, XS("OllyDBG")) != NULL ||
-        strstr(cur_window, XS("Immunity")) != NULL ||
-        strstr(cur_window, XS("Cheat Engine")) != NULL)
+    if (CustomStrStr(cur_window, XS("WinDbg")) ||
+        CustomStrStr(cur_window, XS("x64_dbg")) ||
+        CustomStrStr(cur_window, XS("OllyICE")) ||
+        CustomStrStr(cur_window, XS("OllyDBG")) ||
+        CustomStrStr(cur_window, XS("Immunity")) ||
+        CustomStrStr(cur_window, XS("Cheat Engine")))
     {
         *((BOOL*)lParam) = TRUE;
     }
@@ -93,7 +125,10 @@ namespace AntiDebug {
 #ifdef _WIN64
         BYTE Reserved4[104];
         PVOID Reserved5[5];
-        ULONG NtGlobalFlag;
+        union {
+            ULONG NtGlobalFlag;
+            // The user's snippet uses Reserved2[1] for ModuleList which is PEB-dependent
+        };
         PVOID Reserved5_2[46];
 #else
         BYTE Reserved4[84];
@@ -164,24 +199,24 @@ namespace AntiDebug {
         BOOL ret = FALSE;
         LI_FN(EnumWindows)((WNDENUMPROC)EnumWndProc, (LPARAM)&ret);
 
-        if (LI_FN(FindWindowA)(XS("OLLYDBG"), NULL) != NULL ||
-            LI_FN(FindWindowA)(XS("WinDbgFrameClass"), NULL) != NULL ||
-            LI_FN(FindWindowA)(XS("QWidget"), NULL) != NULL ||
-            LI_FN(FindWindowA)(XS("Qt5153QTQWindowIcon"), NULL) != NULL || // IDA in quick start
-            LI_FN(FindWindowA)(XS("Qt5153QTQWindowPopupDropShadowSaveBits"), NULL) != NULL ||  // ida 
-            LI_FN(FindWindowA)(XS("Qt5QWindowIcon"), NULL) != NULL || // X64DBG ( some old version of x64dbg have this idk why butttttt )
-            LI_FN(FindWindowA)(XS("Qt5QWindowPopupDropShadowSaveBits"), NULL) != NULL) // x64dbg ( new )
+        if (LI_FN(FindWindowA).get<HWND(WINAPI*)(LPCSTR, LPCSTR)>()(XS("OLLYDBG"), nullptr) != nullptr ||
+            LI_FN(FindWindowA).get<HWND(WINAPI*)(LPCSTR, LPCSTR)>()(XS("WinDbgFrameClass"), nullptr) != nullptr ||
+            LI_FN(FindWindowA).get<HWND(WINAPI*)(LPCSTR, LPCSTR)>()(XS("QWidget"), nullptr) != nullptr ||
+            LI_FN(FindWindowA).get<HWND(WINAPI*)(LPCSTR, LPCSTR)>()(XS("Qt5153QTQWindowIcon"), nullptr) != nullptr || // IDA in quick start
+            LI_FN(FindWindowA).get<HWND(WINAPI*)(LPCSTR, LPCSTR)>()(XS("Qt5153QTQWindowPopupDropShadowSaveBits"), nullptr) != nullptr || // ida 
+            LI_FN(FindWindowA).get<HWND(WINAPI*)(LPCSTR, LPCSTR)>()(XS("Qt5QWindowIcon"), nullptr) != nullptr || // X64DBG ( some old version of x64dbg have this idk why butttttt )
+            LI_FN(FindWindowA).get<HWND(WINAPI*)(LPCSTR, LPCSTR)>()(XS("Qt5QWindowPopupDropShadowSaveBits"), nullptr) != nullptr) // x64dbg ( new )
         {
             return true;
         }
 
         char fore_window[1024];
         LI_FN(GetWindowTextA)(LI_FN(GetForegroundWindow)(), fore_window, 1023);
-        if (strstr(fore_window, XS("WinDbg")) != NULL ||
-            strstr(fore_window, XS("x64_dbg")) != NULL ||
-            strstr(fore_window, XS("OllyICE")) != NULL ||
-            strstr(fore_window, XS("OllyDBG")) != NULL ||
-            strstr(fore_window, XS("Immunity")) != NULL)
+        if (CustomStrStr(fore_window, XS("WinDbg")) ||
+            CustomStrStr(fore_window, XS("x64_dbg")) ||
+            CustomStrStr(fore_window, XS("OllyICE")) ||
+            CustomStrStr(fore_window, XS("OllyDBG")) ||
+            CustomStrStr(fore_window, XS("Immunity")))
         {
             return true;
         }
@@ -200,12 +235,12 @@ namespace AntiDebug {
         if (hSnapshot == INVALID_HANDLE_VALUE) return false;
 
         PROCESSENTRY32 pe;
-        pe.dwSize = sizeof(pe);
+        pe.dwSize = sizeof(pe); 
 
         if (LI_FN(Process32First)(hSnapshot, &pe)) {
             do {
                 for (auto const& proc : processes) {
-                    if (strstr(pe.szExeFile, proc)) {
+                    if (CustomStrStr(pe.szExeFile, proc)) {
                         LI_FN(CloseHandle)(hSnapshot);
                         return true;
                     }
@@ -283,7 +318,7 @@ namespace AntiDebug {
 
             while (RegEnumKeyExA(hKey, index, keyName, &nameSize, NULL, NULL, NULL, NULL) == ERROR_SUCCESS) {
                 for (const auto& vendor : vm_vendors) {
-                    if (strstr(keyName, vendor)) {
+                    if (CustomStrStr(keyName, vendor)) {
                         vm = true;
                         break;
                     }
@@ -296,25 +331,177 @@ namespace AntiDebug {
 
         return vm;
     }
+    inline void SecurityExit() {
+        ShowDetectionPopup(XS("Critical security violation detected! Terminating process..."));
+
+   
+        HMODULE hMod = LI_FN(GetModuleHandleA).get<HMODULE(WINAPI*)(LPCSTR)>()(nullptr);
+        auto base = (char*)hMod;
+        if (base) {
+            DWORD old;
+            if (LI_FN(VirtualProtect)(base, 0x1000, PAGE_READWRITE, &old)) {
+                LI_FN(memset)(base, 0, 0x1000);
+            }
+        }
+
+
+        LI_FN(TerminateProcess)(LI_FN(GetCurrentProcess)(), 0xDEAD);
+
+ 
+        LI_FN(exit)(0);
+    }
+
+    struct _integrity_check {
+        struct section {
+            void* address = nullptr;
+            std::uint32_t size = 0;
+            std::uint32_t checksum = 0;
+
+            bool operator==(const section& other) const {
+                return checksum == other.checksum;
+            }
+        } _cached;
+
+        std::uint32_t crc32(void* data, std::size_t size) {
+            std::uint32_t result = 0;
+            auto p = reinterpret_cast<std::uint8_t*>(data);
+            for (std::size_t i = 0; i < size; ++i)
+                result = _mm_crc32_u8(result, p[i]);
+            return result;
+        }
+
+        section get_text_section(std::uintptr_t module) {
+            section text_section = {};
+            auto dos = reinterpret_cast<PIMAGE_DOS_HEADER>(module);
+            if (!dos || dos->e_magic != IMAGE_DOS_SIGNATURE) return text_section;
+            auto nt = reinterpret_cast<PIMAGE_NT_HEADERS>(module + dos->e_lfanew);
+            auto section_hdr = IMAGE_FIRST_SECTION(nt);
+
+            for (int i = 0; i < nt->FileHeader.NumberOfSections; i++, section_hdr++) {
+                if (LI_FN(strncmp)((char*)section_hdr->Name, (char*)XS(".text"), 5) == 0) {
+                    text_section.address = reinterpret_cast<void*>(module + section_hdr->VirtualAddress);
+                    text_section.size = section_hdr->Misc.VirtualSize;
+                    text_section.checksum = crc32(text_section.address, text_section.size);
+                    break;
+                }
+            }
+            return text_section;
+        }
+
+        _integrity_check() {
+            _cached = get_text_section(reinterpret_cast<std::uintptr_t>(LI_FN(GetModuleHandleA)(nullptr)));
+        }
+
+        bool check() {
+            auto current = get_text_section(reinterpret_cast<std::uintptr_t>(LI_FN(GetModuleHandleA)(nullptr)));
+            return current.checksum == _cached.checksum;
+        }
+    };
+
+    inline _integrity_check& get_integrity() {
+        static _integrity_check instance;
+        return instance;
+    }
+
+    inline bool CheckIntegrityAdvanced() {
+        return get_integrity().check();
+    }
+
+    inline void BetterAntiDump() {
+#if defined(_M_X64)
+        const auto peb = (PPEB)__readgsqword(0x60);
+#elif defined(_M_IX86)
+        const auto peb = (PPEB)__readfsdword(0x30);
+#endif
+        if (peb && peb->Ldr) {
+      
+            const auto in_load_order_module_list = (PLIST_ENTRY)peb->Ldr->Reserved2[1];
+            if (in_load_order_module_list) {
+                const auto table_entry = CONTAINING_RECORD(in_load_order_module_list, LDR_DATA_TABLE_ENTRY, Reserved1[0]);
+                const auto p_size_of_image = (PULONG)&table_entry->Reserved3[1];
+                *p_size_of_image = (ULONG)((INT_PTR)table_entry->DllBase + 0x100000);
+            }
+        }
+
+      
+        HMODULE hMod = LI_FN(GetModuleHandleA).get<HMODULE(WINAPI*)(LPCSTR)>()(nullptr);
+        auto base = (char*)hMod;
+        if (base) {
+            DWORD old;
+            if (LI_FN(VirtualProtect)(base, 0x1000, PAGE_READWRITE, &old)) {
+                LI_FN(memset)(base, 0, 0x1000);
+                LI_FN(VirtualProtect)(base, 0x1000, old, &old);
+            }
+        }
+    }
+
+    inline void RemapImage() {
+        HMODULE hMod = LI_FN(GetModuleHandleA).get<HMODULE(WINAPI*)(LPCSTR)>()(nullptr);
+        auto base = (char*)hMod;
+        if (!base) return;
+        auto dos = (PIMAGE_DOS_HEADER)base;
+        auto nt = (PIMAGE_NT_HEADERS)(base + dos->e_lfanew);
+        auto size = nt->OptionalHeader.SizeOfImage;
+
+        HANDLE section_handle = NULL;
+        LARGE_INTEGER section_size = { 0 };
+        section_size.QuadPart = size;
+
+        auto ntdll = LI_FN(GetModuleHandleA)(XS("ntdll.dll"));
+        if (!ntdll) return;
+
+        auto nt_create_sec = reinterpret_cast<NtCreateSection_t>(
+            LI_FN(GetProcAddress)(ntdll, XS("NtCreateSection"))
+            );
+
+        auto nt_map_sec = reinterpret_cast<NtMapViewOfSection_t>(
+            LI_FN(GetProcAddress)(ntdll, XS("NtMapViewOfSection"))
+            );
+
+        auto nt_unmap_sec = reinterpret_cast<NtUnmapViewOfSection_t>(
+            LI_FN(GetProcAddress)(ntdll, XS("NtUnmapViewOfSection"))
+            );
+
+
+
+        if (!nt_create_sec || !nt_map_sec || !nt_unmap_sec) return;
+
+        NTSTATUS status = nt_create_sec(&section_handle, SECTION_ALL_ACCESS, NULL, &section_size, PAGE_EXECUTE_READWRITE, SEC_COMMIT, NULL);
+        if (!NT_SUCCESS(status)) return;
+
+        PVOID local_view = NULL;
+        SIZE_T view_size = 0;
+        LARGE_INTEGER offset = { 0 };
+        status = nt_map_sec(section_handle, LI_FN(GetCurrentProcess)(), &local_view, 0, size, &offset, &view_size, 2, 0, PAGE_READWRITE);
+        if (!NT_SUCCESS(status)) {
+            LI_FN(CloseHandle)(section_handle);
+            return;
+        }
+
+        LI_FN(memcpy)(local_view, base, size);
+        status = nt_unmap_sec(LI_FN(GetCurrentProcess)(), base);
+        
+        PVOID remap_base = base;
+        status = nt_map_sec(section_handle, LI_FN(GetCurrentProcess)(), &remap_base, 0, 0, &offset, &view_size, 2, 0, PAGE_EXECUTE_READWRITE);
+
+        LI_FN(CloseHandle)(section_handle);
+    }
+
     inline bool IsRunningInVM() {
         bool detected = false;
         if (detect_hypervisor() || detect_vm()) {
-            ShowDetectionPopup(XS("Virtual Machine detected!"));
             detected = true;
         }
 
         if (detect_low_ram()) {
-            ShowDetectionPopup(XS("Suspicious low RAM configuration detected!"));
             detected = true;
         }
 
         if (detect_few_cores()) {
-            ShowDetectionPopup(XS("Suspicious low CPU core count detected!"));
             detected = true;
         }
 
         if (detect_low_disk_space()) {
-            ShowDetectionPopup(XS("Suspicious low disk space detected!"));
             detected = true;
         }
         return detected;
@@ -323,25 +510,16 @@ namespace AntiDebug {
 
     inline bool IsBeingDebugged() {
         return IsDebuggerPresentAdvanced() || CheckRemoteDebugger() || CheckHardwareBreakpoints() ||
-            CheckSoftwareBreakpoints() || IsDebuggerPresent() || CheckTimingAttack() ||
-            CheckWindow() || CheckProcesses() || CheckIntegrity();
+            CheckSoftwareBreakpoints() || LI_FN(IsDebuggerPresent)() || CheckTimingAttack() ||
+            CheckWindow()  || CheckProcesses() || !CheckIntegrityAdvanced();
     }
 
     inline void AntiDump() {
         LI_FN(SetErrorMode)(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
-        
-  
-        auto base = (char*)LI_FN(GetModuleHandleA)(NULL);
-        if (base) {
-            DWORD oldProtect;
-            if (LI_FN(VirtualProtect)(base, 4096, PAGE_READWRITE, &oldProtect)) {
-                LI_FN(memset)(base, 0, 4096);
-                LI_FN(VirtualProtect)(base, 4096, oldProtect, &oldProtect);
-            }
-        }
+        BetterAntiDump();
 
         HANDLE hToken;
-        if (LI_FN(OpenProcessToken)(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES, &hToken)) {
+        if (LI_FN(OpenProcessToken)(LI_FN(GetCurrentProcess)(), TOKEN_ADJUST_PRIVILEGES, &hToken)) {
             TOKEN_PRIVILEGES tp;
             LI_FN(LookupPrivilegeValueA)(nullptr, XS("SeDebugPrivilege"), &tp.Privileges[0].Luid);
             tp.PrivilegeCount = 1;
@@ -354,16 +532,11 @@ namespace AntiDebug {
 
 
     inline DWORD WINAPI HiddenThread(LPVOID lpParam) {
-        LI_FN(NtSetInformationThread).nt()(GetCurrentThread(), (THREADINFOCLASS)17, nullptr, 0);
+        LI_FN(NtSetInformationThread).nt()(LI_FN(GetCurrentThread)(), (THREADINFOCLASS)17, nullptr, 0);
 
         while (true) {
-            if (IsBeingDebugged()) {
-                ShowDetectionPopup(XS("Debugger detected!"));
-                LI_FN(exit)(0);
-            }
-            if (IsRunningInVM()) {
-                ShowDetectionPopup(XS("VM detected!"));
-                LI_FN(exit)(0);
+            if (IsBeingDebugged() || IsRunningInVM()) {
+                SecurityExit();
             }
             LI_FN(Sleep)(1000);
         }
