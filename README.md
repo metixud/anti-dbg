@@ -8,6 +8,9 @@
 
 ---
 
+⚠️ this project will never receive update this is deprecated.
+
+
 ## **⚠️ Legal Warning**
 This repository is **for educational and research purposes only**.
 - **Do NOT use** this to bypass anti-cheat systems (EAC, BattlEye, VAC, etc.).
